@@ -8,3 +8,6 @@
 | [ADR-0002](0002-validation-starter-for-config.md) | spring-boot-starter-validation 으로 config startup-time 검증 | Accepted | 2026-05-18 |
 | [ADR-0003](0003-explicit-enable-configuration-properties.md) | `@EnableConfigurationProperties` 명시 등록 채택 | Accepted | 2026-05-18 |
 | [ADR-0004](0004-s3-credentials-nullable-fallback.md) | S3 credentials nested record nullable + DefaultCredentialsProvider fallback | Accepted | 2026-05-18 |
+| [ADR-0005](0005-api-response-envelope-and-errorcode-mapping.md) | ApiResponse envelope 통일 + ErrorCode 매핑 정책 + URL prefix `/api/members` | Accepted | 2026-05-18 |
+| [ADR-0006](0006-multipart-isolation-with-image-upload-command.md) | Multipart 격리 — Controller-only 경계, `ImageUploadCommand` record | Accepted | 2026-05-18 |
+| [ADR-0007](0007-storage-key-format-policy.md) | Storage key 생성 정책 — `profile/{memberId}/{uuid}.{ext}` | Accepted | 2026-05-18 |
