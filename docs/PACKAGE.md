@@ -39,10 +39,12 @@
 nbc.profile
 ├── ProfileApplication                      # @SpringBootApplication
 ├── common
-│   └── exception
-│       ├── BusinessException               # abstract, RuntimeException 상속
-│       ├── ErrorCode                       # enum (status, message)
-│       └── GlobalExceptionHandler          # @RestControllerAdvice
+│   ├── exception
+│   │   ├── BusinessException               # abstract, RuntimeException 상속
+│   │   ├── ErrorCode                       # enum (status, message)
+│   │   └── GlobalExceptionHandler          # @RestControllerAdvice (envelope + Validation + MaxUploadSize + catch-all)
+│   └── web
+│       └── ApiResponse                     # record<T>(code, message, data) — 성공/에러 통일 envelope (ADR-0005)
 ├── config
 │   └── JpaAuditingConfig                   # @EnableJpaAuditing(dateTimeProviderRef)
 ├── shared
@@ -50,15 +52,29 @@ nbc.profile
 │   │   ├── FileStoragePort                 # 인터페이스 (upload/download/delete/exists/presign)
 │   │   └── FileStorageException            # extends BusinessException
 │   └── infrastructure/storage
-│       ├── S3StorageProperties             # @ConfigurationProperties record
-│       ├── S3StorageConfig                 # @Configuration @Profile("!test") — S3Client + S3Presigner
+│       ├── S3StorageProperties             # @ConfigurationProperties record + @Validated + nested Credentials/Presigned
+│       ├── S3StorageConfig                 # @Configuration + @EnableConfigurationProperties (Properties 모든 profile 등록, S3Client/Presigner Bean 만 @Profile("!test"))
 │       └── S3FileStorageAdapter            # @Component @Profile("!test")
 └── member
+    ├── application
+    │   ├── MemberService                   # @Service @Transactional (4 메서드: create/get/updateProfileImage/getProfileImageUrl)
+    │   └── dto
+    │       ├── MemberCreateCommand         # record (name, age, mbti String)
+    │       └── ImageUploadCommand          # record (bytes, contentType, originalFilename)
     ├── domain
     │   ├── Member                          # Aggregate Root (정적 팩토리)
     │   ├── Mbti                            # 16값 enum
     │   └── exception
-    │       └── MemberDomainException       # extends BusinessException
+    │       ├── MemberDomainException       # 도메인 검증 실패
+    │       ├── MemberNotFoundException     # 존재하지 않는 회원 (404)
+    │       └── ProfileImageNotFoundException  # profileImageKey null 인 회원의 URL 조회 (404)
+    ├── presentation
+    │   ├── MemberController                # /api/members 4 endpoint
+    │   └── dto
+    │       ├── request/MemberCreateRequest  # record + jakarta.validation
+    │       └── response
+    │           ├── MemberResponse           # static from(Member)
+    │           └── ProfileImageUrlResponse  # imageUrl + expiresAt
     └── repository
         └── MemberRepository                # JpaRepository<Member, Long>
 ```
@@ -84,7 +100,8 @@ nbc.profile
 | --- | --- | --- |
 | 감사 (Auditing) | `nbc.profile.config.JpaAuditingConfig` | `@EnableJpaAuditing(dateTimeProviderRef = "auditingDateTimeProvider")`. 테스트는 `TestDateTimeProviderConfig` 로 `@Primary` 덮어쓰기. |
 | GlobalExceptionHandler · ErrorCode | `nbc.profile.common.exception` | `BusinessException` 상속 예외만 라우팅. 도메인은 `MemberDomainException` · 포트는 `FileStorageException`. |
-| 파일 저장 | `nbc.profile.shared.infrastructure.storage` | `@Profile("!test")` 의 S3 어댑터. LocalStack 시 `app.storage.s3.endpoint` 만 채움. |
+| 파일 저장 | `nbc.profile.shared.infrastructure.storage` | S3Client / S3Presigner Bean 만 `@Profile("!test")`, Properties 는 모든 profile 에서 등록 (`S3StorageConfig` 클래스 자체는 무프로필). LocalStack 시 `app.storage.s3.endpoint` 만 채움. |
+| API 응답 envelope | `nbc.profile.common.web.ApiResponse` | 성공/에러 통일 `{code, message, data}` 포맷 (ADR-0005). `GlobalExceptionHandler` 가 BusinessException · Validation · MaxUploadSize · catch-all 4 경로 매핑. |
 | 인증 · 인가 | _(TODO)_ | |
 | 시각 · Clock | `DateTimeProvider` Bean (JpaAuditingConfig) | 운영: `LocalDateTime.now()` · 테스트: 시퀀스 (호출마다 1ms 전진) |
 

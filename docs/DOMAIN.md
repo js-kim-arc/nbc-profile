@@ -61,6 +61,8 @@
 - `age` 는 *비음수* 보장 — 도메인 검증 (`MEMBER_AGE_OUT_OF_RANGE`) + DB `int NOT NULL` 이중 방어. 상한 범위 검증은 추후 Story.
 - `id` · `createdAt` · `updatedAt` 외부 주입 금지 — JPA / Auditing 으로만 부여.
 - 도메인 검증 실패 시 `MemberDomainException(ErrorCode.MEMBER_*)` 만 던진다 — `IllegalArgumentException` 같은 stdlib 예외는 금지.
+- Application Service 가 *존재하지 않는 회원 ID* 조회 시 `MemberNotFoundException` (`MEMBER_NOT_FOUND`, 404).
+- Application Service 가 *profileImageKey 가 null 인 회원*의 URL 조회 시 `ProfileImageNotFoundException` (`PROFILE_IMAGE_NOT_FOUND`, 404).
 
 #### 상태 전이
 
