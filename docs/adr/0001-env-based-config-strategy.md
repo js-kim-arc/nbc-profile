@@ -1,7 +1,8 @@
 # ADR-0001: 환경변수 기반 설정 분기 채택, profile 별 yml 파일 분리 회피
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0008](0008-profile-based-yml-split.md)
 - **Date**: 2026-05-18
+- **Superseded-on**: 2026-05-19
 - **Deciders**: junseong kim
 
 ## Context
@@ -64,7 +65,9 @@ Spring Boot 가 *둘 다 지원* 하는 두 전략 사이의 선택이 필요:
 
 ## Follow-ups
 
-- [ ] `application.yml` 의 모든 환경 의존 값을 `${VAR:default}` 형태로 통일.
-- [ ] `application-{profile}.yml` 신규 생성 금지 — `.claude/rules/conventions.md` §3 에 1 줄 보강 (별도 PR).
-- [ ] 로컬 개발 가이드 (`.env` 사용법) README 추가 (별도 PR).
-- [ ] *재검토 트리거*: 환경별 *yml 구조 자체* 가 달라져야 하는 케이스가 발생 (예: 운영에만 부가 섹션) 하면 본 결정 재평가.
+> 본 ADR 은 ADR-0008 로 Superseded. 아래 Follow-ups 는 *Superseded 시점 (2026-05-19) 기준 상태* 로 동결.
+
+- [ ] ~~`application.yml` 의 모든 환경 의존 값을 `${VAR:default}` 형태로 통일.~~ → ADR-0008 에서 *공통 yml 의 디폴트 placeholder + prod yml 의 strict placeholder* 로 정책 재정의.
+- [ ] ~~`application-{profile}.yml` 신규 생성 금지~~ → ADR-0008 로 *철회*. profile yml 분리 채택.
+- [ ] 로컬 개발 가이드 (`.env` / 환경변수 셋업) README 추가 — *ADR-0008 의 Follow-up* 으로 이관.
+- [x] *재검토 트리거 발화* — 2026-05-19 Epic 1 진입 시 환경별 *yml 구조 자체* 차이 (driver-class-name, h2-console, logging level) 가 placeholder 로 표현하기 어려움이 확인되어 ADR-0008 로 재평가.

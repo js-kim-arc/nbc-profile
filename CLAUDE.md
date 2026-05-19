@@ -62,6 +62,18 @@ Reviewer 5관점: **Domain / Architecture / API · Exception / Test / Sceptical*
 
 ---
 
+## Git 협업 핵심 룰 (상세는 `pr-commit.md`)
+
+CLAUDE.md 진입 즉시 보여야 하는 *작업 진행·게시 룰*:
+
+- **브랜치 단위** — Epic 1개 = 브랜치 1개 권장. 새 Epic 진입 시 `<type>/<NNN>-<short-kebab-case>` 형식으로 새 브랜치 생성 후 작업.
+- **push 주체** — AI 는 자동 push 하지 않는다. *작업자가 직접* `git push` 를 실행하며, 사용자가 "push 해"로 명시 요청한 경우에만 AI 가 명령을 제안할 수 있다.
+- **PR 작성 주체** — AI 는 PR 본문 *초안* 만 `pr-commit.md` 템플릿에 맞춰 제공한다. `gh pr create` · GitHub 웹 UI 등으로의 *생성·게시는 작업자가 직접* 수행. AI 가 `gh pr create` 를 자동 실행하지 않는다.
+
+본 3개 룰은 *되돌리기 어려운 행위는 사람이 최종 게이트* 원칙의 구체화. 상세 조건·금지 사항은 `.claude/rules/pr-commit.md` 참조.
+
+---
+
 ## 외부 참조
 
 - ADR Toolkit: `C:/study/System_Author/_library/_adr-toolkit/` — 결정 사고 도구. 새 ADR 작성 전 진입 의무.
