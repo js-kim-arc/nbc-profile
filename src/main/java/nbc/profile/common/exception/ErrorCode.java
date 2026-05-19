@@ -9,6 +9,7 @@ public enum ErrorCode {
     MEMBER_AGE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "age must be non-negative"),
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "member not found"),
     PROFILE_IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "profile image not registered"),
+    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "resource not found"),
 
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "validation failed"),
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "file exceeds size limit"),
