@@ -1,71 +1,85 @@
-# Epic 1. 환경별 Profile 분리 — `application-{profile}.yml` · `@Profile` 일관 적용
+# Epic 2. 운영성 표준 — 로그 표준 포맷 · ERROR 정책 · Actuator Health 화이트리스트
 
 ## Epic 목표
 
-> `application.yml`(공통) · `application-local.yml`(H2) · `application-prod.yml`(MySQL placeholder) 3개 파일로 환경 설정이 분리되고, *active profile 설정만으로* 환경이 즉시 전환되는 상태를 만든다.
-본 프로젝트에 이미 적용된 `@Profile` 기반 어댑터 빈 분리(`S3FileStorageAdapter @Profile("!test")` · `InMemoryFileStorageAdapter @Profile("test")`)와 *일관된 컨벤션*을 유지한다.
+> 모든 API 요청이 `[API - LOG] {METHOD} {URI} {STATUS} ({DURATION}ms)` 포맷의 INFO 로그를 남기고, 예외는 *WARN(예상)/ERROR(예상치 못함)*로 분리되며, `/actuator/health`가 *익명 호출 가능*하고 그 외 endpoint는 *명시적 차단*된 상태를 만든다.
 >
 
 ## 배경
 
-- 본 Product의 *최우선 토대* — 로그·Actuator·배포 모두 *환경별로* 다르게 동작해야 함
-- 본 프로젝트가 이미 *어댑터 빈 분리*에 `@Profile` 사용 중 (`S3FileStorageAdapter @Profile("!test")` / `InMemoryFileStorageAdapter @Profile("test")`) → 이 Epic은 *설정 값 분리*까지 확장
-- Profile 결정이 *Bean Definition 시점*에 일어남 → 런타임 변경 불가, 시작 시 결정만
-- ADR-0001 (env-based 단일 yml) 은 본 Epic 진입 시 ADR-0008 로 Supersede — *환경 구조 차이* 표현 한계로 *profile yml 분리* 채택
+- 본 Epic은 본 Product의 *고유한 가치* — Profile 분리는 어디서나 같지만 *로그 표준 + Actuator 정책*은 본 Product의 시그니처 결정
+- Monitoring Product의 `/actuator/prometheus`가 *본 Epic의 화이트리스트 컨벤션 위에* 추가됨 → *지금* 박지 않으면 향후 *전면 재검토*
+- 로그 표준을 *지금* 박지 않으면 *모든 후속 코드*가 *비표준 로그*로 작성됨 → 일관성 회복 비용 큼
 
 ## 핵심 설계 결정
 
-> **`application.yml`은 *공통 설정만*. 환경별 값은 *profile 파일에서 override*.**
+> **요청 로그는 `Filter`에서, 예외 로그는 `GlobalExceptionHandler`에서.**
+AOP를 *지금은* 도입하지 않음.
 >
-> - 공통: JPA `format_sql`/`time_zone`, multipart 5MB, Jackson, `app.storage.s3.*` 디폴트 placeholder, `spring.profiles.default: local` 등 *환경 무관* 항목
-> - `application-local.yml`: H2 in-memory, h2-console, `show-sql: true`, 로그 `nbc.profile=DEBUG`
-> - `application-prod.yml`: MySQL placeholder *strict* (`${DB_URL}` 디폴트 제거), S3 bucket/region strict, `ddl-auto: validate` override, 로그 `nbc.profile=INFO`
-> - 이유: 공통 / 분기 *경계가 명확*해야 *오버라이드 사고* 방지
+> - `RequestLoggingFilter` (`nbc.profile.common.web.logging`): 요청 진입/완료를 *Servlet Filter 레벨*에서 잡음 — 컨트롤러 도달 전 예외도 포착
+> - 본 프로젝트 `GlobalExceptionHandler` (`nbc.profile.common.exception`): 예외 발생 시 *분류 + 로그 + 응답 변환*. 본 코드는 `BusinessException + ErrorCode(HttpStatus)` 통합 처리 — 로그 레벨은 *status 기반 자동* (ADR-0009)
+> - AOP는 *비즈니스 메서드 단위* 로깅이 필요할 때 — 본 Product 범위 밖
+> - 단점: Filter 로그가 *Spring Boot 부팅 전 예외*는 못 잡음. 무관 — 부팅 예외는 *systemd 로그*로 잡힘
 
-> **`@Profile`은 *어댑터 빈 분리* 전용.**
-설정 값은 *파일 분리*, 구현체는 *빈 분리* — 역할이 다름.
+> **로그 레벨 분리: INFO(요청), WARN(예상 예외), ERROR(예상치 못한 예외).**
 >
-> - 어댑터 빈: `@Profile("!test")` S3FileStorageAdapter (local/default/prod 모두), `@Profile("test")` InMemoryFileStorageAdapter (테스트 격리)
-> - 설정 값: `spring.datasource.url`, `logging.level.*` 등은 *yaml 파일*에서
-> - 단점: 두 메커니즘 *공존*. 무관 — *역할 분리*가 인지 부담을 *오히려 감소*시킴
-> - ADR-0008의 코드 표현 (ADR-0001 Supersede)
+> - INFO: 모든 요청 1회 — 향후 Monitoring Epic 의 RPS 메트릭과 1:1
+> - WARN: `BusinessException` 중 `code.getStatus().is4xxClientError()` (자동) + `MethodArgumentNotValidException` + `MaxUploadSizeExceededException` + `NoHandlerFoundException`
+> - ERROR: `BusinessException` 중 `is5xxServerError()` (자동) + catch-all `Exception` (stack trace 포함)
+> - 이유: 운영에서 *ERROR = 즉시 페이저*, *WARN = 일간 검토* 의 자동화 전제
+> - 향후 Monitoring Epic 의 *에러율 메트릭* 에서 *5xx만 카운트* → ERROR 로그와 자연스럽게 정렬
 
-> **`default` profile은 *local과 동등*하게 동작한다.**
-신규 개발자가 *프로필 지정 없이* 실행해도 H2로 안전하게 뜸.
+> **`/actuator/health`의 `show-details: never`.**
+익명 호출자는 *UP/DOWN만* 응답.
 >
-> - `application.yml` 의 `spring.profiles.default: local` 한 줄 — profile 미지정 시 local 로 fallback
-> - `application-default.yml`을 *별도로 만들지 않음* — Spring 의 default-profile 메커니즘에 의존
-> - 단점: `SPRING_PROFILES_ACTIVE=prod` *명시 안 하면* 운영에서 H2로 뜰 위험 — systemd 서비스 파일에 *반드시 명시* (배포 Epic 에서 처리)
+> - `when-authorized`는 *Spring Security가 구성된 후*에 의미 — 본 Product에는 인증 없음
+> - `never`는 *모든 호출자에게 단순 응답* — `{"status":"UP"}` 한 줄
+> - 이유: 익명 호출에 *DB 상태·디스크 정보 노출* 시 *내부 구조 fingerprinting* 가능
+> - 향후 ALB Health Check도 *200 OK만 필요*하므로 details 불필요
+> - 향후 Monitoring Epic 에서 `when-authorized` 도입 검토 — *지금은 보수적*
+> - ADR-0010 의 코드 표현
+
+> **Actuator `exposure.include`는 *명시 화이트리스트*, `exposure.exclude`는 *방어 블랙리스트*.**
+이중 안전망.
+>
+> - `include: health` — 명시적으로 *health만* 허용
+> - `exclude: env, beans, heapdump, threaddump, configprops, mappings` — 향후 실수 노출 방지
+> - 단점: 중복 정의처럼 보임. 무관 — *명시성*이 *최선의 방어*
 
 ## 완료 기준 (Definition of Done)
 
-- [ ]  `src/main/resources/application.yml`이 *공통 설정만* 담는다
-- [ ]  `src/main/resources/application-local.yml`이 H2 DataSource + 로컬 storage 설정
-- [ ]  `src/main/resources/application-prod.yml`이 MySQL placeholder + prod 로그 레벨
-- [ ]  `./gradlew bootRun` (default) → H2 자동 활성, 기존 4개 Member API 동작
-- [ ]  `./gradlew bootRun --args='--spring.profiles.active=local'` → 동일 동작
-- [ ]  `SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun` → MySQL 연결 시도 (값 미설정 → 부팅 실패 메시지 명확)
-- [ ]  본 프로젝트 어댑터 빈이 *각 profile에서 정상 주입*되는지 확인 (local 에서 S3FileStorageAdapter, test 에서 InMemoryFileStorageAdapter)
+- [ ]  `RequestLoggingFilter`가 모든 API 요청 1회당 *진입 + 완료* 2건 로그 출력
+- [ ]  로그 포맷이 `[API - LOG] {METHOD} {URI} {STATUS} ({DURATION}ms)` 표준 준수
+- [ ]  `GlobalExceptionHandler`가 *status 기반 자동* WARN/ERROR 분리 (ADR-0009)
+- [ ]  ERROR 로그에 *stack trace* 자동 포함 (`log.error("...", e)`)
+- [ ]  `GET /actuator/health` 200 OK + `{"status":"UP"}` 응답
+- [ ]  `GET /actuator/env` 404 (RESOURCE_NOT_FOUND)
+- [ ]  `GET /actuator/heapdump` 404
+- [ ]  `GET /actuator/beans` 404
+- [ ]  로컬 profile에서 *DEBUG* 로그가 추가로 출력 (`logging.level.nbc.profile: DEBUG`, Story-001-1 적용분)
+- [ ]  prod profile에서 *INFO 이상*만 출력
 - [ ]  연결된 Story가 모두 Done 상태다
 
 ## 산출물 (Deliverables)
 
-- `src/main/resources/application.yml`
-- `src/main/resources/application-local.yml`
-- `src/main/resources/application-prod.yml`
-- `ProfileSmokeTest.java` (각 profile에서 ApplicationContext 정상 로딩 검증)
+- `nbc/profile/common/web/logging/RequestLoggingFilter.java`
+- `nbc/profile/common/exception/GlobalExceptionHandler.java` 업데이트 (status 기반 WARN/ERROR + NoHandlerFound 404 매핑)
+- `nbc/profile/common/exception/ErrorCode.java` — `RESOURCE_NOT_FOUND` 추가
+- `application.yml` 공통에 `management.endpoints.*` + `endpoint.health.show-details: never`
+- `build.gradle.kts`에 `spring-boot-starter-actuator` 추가
+- `nbc/profile/common/web/logging/RequestLoggingFilterTest.java`
+- `nbc/profile/common/web/ActuatorEndpointTest.java`
+- ADR-0009 / ADR-0010
 
 ## 연결된 Story 목록
 
-- [ ]  Story 1-1. `application-{profile}.yml` 3분할 + Profile별 컨텍스트 로딩 검증 (2 SP)
+- [ ]  Story 2-1. 로그 표준 포맷 + ExceptionHandler 로그 + Actuator Health 화이트리스트 (3 SP)
 
 ## 내부 메모 / 제약 사항
 
-- Spring Boot의 profile 우선순위: *명시 active profile > application-{active-profile}.yml > application-{default-profile}.yml > application.yml*
-- `application-prod.yml`의 `${DB_URL}` 같은 *strict* placeholder는 *환경변수 미설정 시* 부팅 실패 — Epic 1 핵심 안전망
-- 향후 *AWS Parameter Store / Secrets Manager* 가 placeholder를 채울 수 있음 — 이 Epic은 *placeholder 자리*만 정의
-- 로컬에서 *prod profile 실수 활성화* 방지: README에 *prod는 운영 환경에서만* 명시
-- 본 Epic 진입 시 ADR-0008 작성 — `application-{profile}.yml` 분리 채택 (ADR-0001 Supersede)
-- 시크릿 컨벤션: profile yml 에 시크릿 직접 기재 금지, 모두 `${VAR}` placeholder (ADR-0008 Follow-up)
-
----
+- `RequestLoggingFilter`는 *Actuator · h2-console 경로 제외* (`shouldNotFilter`) — 향후 Monitoring Epic 의 prometheus 스크랩이 로그 노이즈 되지 않도록 *지금* 박음
+- Logback 설정은 *Spring Boot 기본*을 사용 — `logback-spring.xml` 커스터마이징은 본 PR 범위 외 (필요시 후속 PR)
+- 표준 포맷에 *시간 / 스레드 / 로거명*은 Logback 기본 패턴이 처리 — 본 PR 책임은 *메시지 본문* 표준화만
+- 향후 Monitoring Epic 의 *traceId / MDC*는 *이 표준 포맷에 자연 추가* 됨 — 본 Product는 *비워 둠*
+- 본 Epic 진입 시 ADR-0009 (로그 표준) + ADR-0010 (Actuator 노출 정책) 작성
+- `BusinessException + ErrorCode(HttpStatus)` 통합 처리 구조 활용 — status 기반 자동 WARN/ERROR 분기 (새 예외/ErrorCode 추가 시 핸들러 무수정)

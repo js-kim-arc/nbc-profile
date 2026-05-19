@@ -1,200 +1,221 @@
-## Story 1-1. `application-{profile}.yml` 3분할 + Profile별 컨텍스트 로딩 검증
+## Story 2-1. 로그 표준 포맷 + ExceptionHandler 로그 + Actuator Health 화이트리스트
 
 ### User Story
 
 > As a 백엔드 개발자,
-I want 설정 파일이 *공통 / local / prod* 3개로 분리되고 *active profile 설정만으로* 환경이 전환되길,
-So that 로컬 개발은 H2로 가볍게, 운영 배포는 MySQL/Parameter Store로 안전하게 진행되고, 환경 간 사고가 *구조적으로 차단*된다.
+I want 모든 API 요청에 표준 INFO 로그가 남고, 예외는 *예상/예상치 못함*으로 분리되며, `/actuator/health`만 노출되길,
+So that EC2 배포 후 `journalctl`로 *요청 흐름 추적*이 가능하고, ALB / Monitoring이 *지금 박힌 baseline*을 그대로 활용한다.
 >
 
 ### 설계 노트
 
-- **`src/main/resources/application.yml` (공통)**
-
-    ```yaml
-    spring:
-      application:
-        name: demo
-      profiles:
-        default: local
-      jpa:
-        hibernate:
-          ddl-auto: update
-        properties:
-          hibernate:
-            format_sql: true
-            jdbc:
-              time_zone: Asia/Seoul
-      servlet:
-        multipart:
-          max-file-size: 5MB
-          max-request-size: 5MB
-      jackson:
-        time-zone: Asia/Seoul
-        date-format: yyyy-MM-dd'T'HH:mm:ss
-    
-    app:
-      storage:
-        s3:
-          bucket: ${S3_BUCKET:my-toy-bucket}
-          region: ${S3_REGION:ap-northeast-2}
-          endpoint: ${S3_ENDPOINT:}
-          credentials:
-            access-key: ${S3_ACCESS_KEY:}
-            secret-key: ${S3_SECRET_KEY:}
-          presigned:
-            default-expiration-seconds: ${S3_PRESIGNED_TTL_SECONDS:300}
-    
-    # 메모: app.version: @project.version@ 같은 Gradle resource filtering 항목은
-    # 본 Story 범위 외 — 별도 후속 작업으로.
-    ```
-
-- **`src/main/resources/application-local.yml` (H2)**
-
-    ```yaml
-    spring:
-      datasource:
-        url: jdbc:h2:mem:testdb;MODE=MySQL;DATABASE_TO_LOWER=TRUE
-        driver-class-name: org.h2.Driver
-        username: sa
-        password: sa
-      jpa:
-        show-sql: true
-      h2:
-        console:
-          enabled: true
-          path: /h2-console
-    
-    logging:
-      level:
-        root: INFO
-        nbc.profile: DEBUG
-        org.hibernate.SQL: DEBUG
-    ```
-    
-    > 메모: 본 프로젝트는 *S3 일원화* (LocalFileSystem 어댑터 미존재). local 도 S3FileStorageAdapter 활성 — `app.storage.s3.*` 디폴트 placeholder 가 공통 application.yml 에 있어 별도 override 불필요.
-
-- **`src/main/resources/application-prod.yml` (MySQL placeholder strict + S3 strict + prod 로그)**
-
-    ```yaml
-    spring:
-      datasource:
-        url: ${DB_URL}                  # 디폴트 제거 — 환경변수 미설정 시 부팅 실패
-        driver-class-name: com.mysql.cj.jdbc.Driver
-        username: ${DB_USERNAME}
-        password: ${DB_PASSWORD}
-      jpa:
-        hibernate:
-          ddl-auto: validate            # 운영 자동 스키마 변경 차단
-        show-sql: false                 # prod는 SQL 로그 끔 (Monitoring 메트릭으로 대체)
-    
-    app:
-      storage:
-        s3:
-          bucket: ${S3_BUCKET}          # 디폴트 제거 — strict
-          region: ${S3_REGION}          # 디폴트 제거 — strict
-          # endpoint / credentials 는 공통 application.yml 의 placeholder 유지
-          # (ADR-0004 DefaultCredentialsProvider fallback 활용)
-    
-    logging:
-      level:
-        root: INFO
-        nbc.profile: INFO
-        org.hibernate.SQL: WARN
-    ```
-
-- **`build.gradle.kts` 의존성 (MySQL 드라이버) — *이미 추가됨***
+- **`build.gradle.kts` 의존성 추가**
 
     ```kotlin
     dependencies {
         // ... 기존 의존성
-        runtimeOnly("com.mysql:mysql-connector-j")   // prod profile에서 사용
+        implementation("org.springframework.boot:spring-boot-starter-actuator")
     }
     ```
-    
-    > 본 프로젝트는 *Kotlin DSL 빌드* (`build.gradle.kts`). MySQL 드라이버는 이미 등록된 상태 — 본 Story 의 의존성 변경 *없음*.
 
-- **Profile 활성화 방법 (배포 Epic 에서 운영 환경에 적용)**
+- **`application.yml` Actuator 설정 (공통)**
 
-    ```bash
-    # 로컬 — default(=local), spring.profiles.default: local 활용
-    ./gradlew bootRun
-    
-    # 로컬 — local 명시
-    ./gradlew bootRun --args='--spring.profiles.active=local'
-    
-    # 운영 — prod (환경변수 방식)
-    SPRING_PROFILES_ACTIVE=prod \
-      DB_URL=jdbc:mysql://... \
-      DB_USERNAME=... \
-      DB_PASSWORD=... \
-      S3_BUCKET=... \
-      S3_REGION=... \
-      java -jar app.jar
+    ```yaml
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health
+            exclude: env, beans, heapdump, threaddump, configprops, mappings
+          base-path: /actuator
+      endpoint:
+        health:
+          show-details: never
+          probes:
+            enabled: false      # K8s liveness/readiness 분리는 v2
+      server:
+        port: 8080              # 비즈니스 포트와 통합 (분리는 v2)
     ```
-    
-    > PowerShell 환경에서는 `$env:SPRING_PROFILES_ACTIVE="prod"; ./gradlew.bat bootRun` 형태.
 
-- **`ProfileSmokeTest.java`**
+- **`RequestLoggingFilter.java`** (`nbc.profile.common.web.logging`)
 
     ```java
-    class ProfileSmokeTest {
+    package nbc.profile.common.web.logging;
     
-        @Nested
-        @SpringBootTest
-        @ActiveProfiles("local")
-        class LocalProfile {
-            @Autowired FileStoragePort fileStoragePort;
+    import jakarta.servlet.FilterChain;
+    import jakarta.servlet.ServletException;
+    import jakarta.servlet.http.HttpServletRequest;
+    import jakarta.servlet.http.HttpServletResponse;
+    import lombok.extern.slf4j.Slf4j;
+    import org.springframework.stereotype.Component;
+    import org.springframework.web.filter.OncePerRequestFilter;
     
-            @Test
-            void contextLoads_localProfile_injectsS3Adapter() {
-                assertThat(fileStoragePort).isInstanceOf(S3FileStorageAdapter.class);
-            }
+    import java.io.IOException;
+    
+    @Slf4j
+    @Component
+    public class RequestLoggingFilter extends OncePerRequestFilter {
+    
+        @Override
+        protected boolean shouldNotFilter(HttpServletRequest request) {
+            String uri = request.getRequestURI();
+            // Actuator 경로 제외 — 헬스체크 폴링이 로그 노이즈 되지 않도록
+            return uri.startsWith("/actuator") || uri.startsWith("/h2-console");
         }
     
-        @Nested
-        @SpringBootTest
-        @ActiveProfiles("test")
-        class TestProfile {
-            @Autowired FileStoragePort fileStoragePort;
+        @Override
+        protected void doFilterInternal(
+                HttpServletRequest request,
+                HttpServletResponse response,
+                FilterChain chain) throws ServletException, IOException {
     
-            @Test
-            void contextLoads_testProfile_injectsInMemoryAdapter() {
-                assertThat(fileStoragePort).isInstanceOf(InMemoryFileStorageAdapter.class);
+            long start = System.currentTimeMillis();
+            String method = request.getMethod();
+            String uri = request.getRequestURI();
+    
+            log.info("[API - LOG] {} {} START", method, uri);
+    
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                long duration = System.currentTimeMillis() - start;
+                int status = response.getStatus();
+                log.info("[API - LOG] {} {} {} ({}ms)", method, uri, status, duration);
             }
         }
-    
-        // prod profile은 환경변수 의존 (strict placeholder) 이라 단위 테스트 제외
-        // — 향후 통합/배포 검증 단계로 위임
     }
+    ```
+
+- **`GlobalExceptionHandler.java` 업데이트** (`nbc.profile.common.exception`)
+
+    > 본 프로젝트는 `BusinessException + ErrorCode(HttpStatus)` 통합 처리. 로그 레벨은 *status 기반 자동* (ADR-0009) — 새 예외 / ErrorCode 추가 시 핸들러 무수정.
+
+    ```java
+    @Slf4j
+    @RestControllerAdvice
+    public class GlobalExceptionHandler {
+    
+        @ExceptionHandler(BusinessException.class)
+        public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex) {
+            ErrorCode code = ex.getErrorCode();
+            HttpStatus status = code.getStatus();
+            if (status.is5xxServerError()) {
+                log.error("[API - LOG] {} {}", code.name(), code.getMessage(), ex);
+            } else {
+                log.warn("[API - LOG] {} {}", code.name(), code.getMessage());
+            }
+            return ResponseEntity.status(status).body(ApiResponse.error(code));
+        }
+    
+        @ExceptionHandler(MethodArgumentNotValidException.class)
+        public ResponseEntity<ApiResponse<List<String>>> handleValidation(MethodArgumentNotValidException ex) {
+            List<String> errors = ex.getBindingResult().getFieldErrors().stream()
+                    .map(f -> "%s: %s".formatted(f.getField(), f.getDefaultMessage()))
+                    .toList();
+            log.warn("[API - LOG] VALIDATION_FAILED {}", errors);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(ErrorCode.VALIDATION_FAILED, errors));
+        }
+    
+        @ExceptionHandler(MaxUploadSizeExceededException.class)
+        public ResponseEntity<ApiResponse<Void>> handleTooLarge(MaxUploadSizeExceededException ex) {
+            log.warn("[API - LOG] FILE_TOO_LARGE {}", ex.getMessage());
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                    .body(ApiResponse.error(ErrorCode.FILE_TOO_LARGE));
+        }
+    
+        @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
+        public ResponseEntity<ApiResponse<Void>> handleNotFound(Exception ex) {
+            log.warn("[API - LOG] RESOURCE_NOT_FOUND {}", ex.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(ErrorCode.RESOURCE_NOT_FOUND));
+        }
+    
+        @ExceptionHandler(Exception.class)
+        public ResponseEntity<ApiResponse<Void>> handleUnknown(Exception ex) {
+            log.error("[API - LOG] INTERNAL_ERROR", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("INTERNAL_ERROR", "unexpected error", null));
+        }
+    }
+    ```
+    
+    > 차이점 정리:
+    > - 본 프로젝트는 *MemberNotFoundException · ProfileImageNotFoundException* 같은 *개별 예외 클래스* 가 모두 `BusinessException` 상속 — `handleBusiness` 단일 핸들러로 통합.
+    > - `ImageStorageException` 은 본 프로젝트에 미존재 (`FileStorageException` 으로 명명) — 역시 `BusinessException` 상속이라 별도 핸들러 불필요.
+    > - `RESOURCE_NOT_FOUND` ErrorCode 추가 + `handleNotFound` — Actuator exclude 된 endpoint 의 404 응답을 위해 본 Story 에서 추가.
+    > - `@RestControllerAdvice` basePackages 제한 없음 — 본 프로젝트는 단일 BC.
+
+- **`logback-spring.xml` (선택 — 콘솔 패턴 표준화)**
+
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+        <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    
+        <property name="LOG_PATTERN"
+                  value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
+    
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${LOG_PATTERN}</pattern>
+            </encoder>
+        </appender>
+    
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </configuration>
+    ```
+
+- **예상 로그 출력 샘플**
+
+    ```
+    2026-05-19 14:23:01.234 INFO  [http-nio-8080-exec-1] n.p.c.w.l.RequestLoggingFilter - [API - LOG] POST /api/members START
+    2026-05-19 14:23:01.298 INFO  [http-nio-8080-exec-1] n.p.c.w.l.RequestLoggingFilter - [API - LOG] POST /api/members 201 (64ms)
+    
+    2026-05-19 14:23:05.111 INFO  [http-nio-8080-exec-2] n.p.c.w.l.RequestLoggingFilter - [API - LOG] GET /api/members/999 START
+    2026-05-19 14:23:05.115 WARN  [http-nio-8080-exec-2] n.p.c.e.GlobalExceptionHandler  - [API - LOG] MEMBER_NOT_FOUND member not found
+    2026-05-19 14:23:05.117 INFO  [http-nio-8080-exec-2] n.p.c.w.l.RequestLoggingFilter - [API - LOG] GET /api/members/999 404 (6ms)
     ```
 
 
 ### 완료 기준 (Acceptance Criteria)
 
-- [ ]  `src/main/resources/`에 3개 yaml 파일 존재 (`application.yml`, `local.yml`, `prod.yml`)
-- [ ]  공통 설정이 `application.yml`에만, 환경별 설정이 *해당 profile 파일에만* 위치 (중복 없음)
-- [ ]  `./gradlew bootRun` 실행 시 *default profile 활성*되며 H2 콘솔 접근 가능
-- [ ]  `./gradlew bootRun --args='--spring.profiles.active=local'` 결과 동일
-- [ ]  `SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun` 시 *DB_URL 미설정* 에러 발생 (placeholder가 실제 작동)
-- [ ]  `ProfileSmokeTest`가 `local`/`test` 두 profile에서 ApplicationContext 정상 로딩
-- [ ]  본 프로젝트의 `S3FileStorageAdapter`가 default/local에서, `InMemoryFileStorageAdapter`가 test에서 *각각 주입* 확인
+- [ ]  `RequestLoggingFilter`가 `@Component`로 자동 등록되어 모든 요청 1회당 *2건 로그* (START + 완료)
+- [ ]  로그 메시지가 `[API - LOG] {METHOD} {URI} {STATUS} ({DURATION}ms)` 포맷 준수
+- [ ]  `/actuator/*` 호출 시 `RequestLoggingFilter` 로그 *발생 안 함*
+- [ ]  `MemberNotFoundException` 발생 시 WARN 로그, stack trace *없음*
+- [ ]  `Exception` catch-all 시 ERROR 로그, stack trace *포함*
+- [ ]  `curl /actuator/health` → 200 + `{"status":"UP"}`
+- [ ]  `curl /actuator/env` → 404
+- [ ]  `curl /actuator/heapdump` → 404
+- [ ]  로컬 profile에서 `nbc.profile` 패키지 DEBUG 로그 출력 (Story-001-1 의 application-local.yml 적용분), prod profile에서 INFO 이상만
+- [ ]  `RequestLoggingFilterTest` 그린 (MockMvc로 검증)
 
 ### 엣지 케이스
 
-- 환경변수 미설정 상태로 prod 부팅 → Spring은 `${DB_URL}` placeholder를 *그대로 문자열*로 사용해 *드라이버 연결 시점*에 에러. *부팅 후 늦은 실패*보다 *부팅 시점 실패*가 안전 → `spring.config.import` 또는 `@Value` 검증으로 *조기 실패* 유도
-- `application.yml` *공통 설정*에 `spring.datasource.url`이 *실수 포함* → local/prod에서 override되지만 *의도 불명* → 공통 파일에 DataSource 항목 *금지* 컨벤션 명시
-- profile 이름 *오타* (`prdo`) → Spring이 *해당 yaml을 찾지 못함* → 부팅은 성공하지만 *application.yml만 사용* → 운영에서 *H2가 뜨는 사고*. 방지: systemd 서비스 파일에 *고정 문자열* 박기 (사람 입력 배제)
-- IDE에서 *Run Configuration*에 active profile 설정 안 함 → 매번 추가 인자 입력. IntelliJ의 `application.yml` 우측 상단 *profile 드롭다운* 사용 권장
-- Gradle `bootRun` 태스크에 `-args` 인자 전달 시 *큰따옴표* 누락하면 인자 분리 오류 → `bash` 환경에서 항상 `--args='...'`, PowerShell 에선 `--args=\"...\"` 형태
-- *Spring Boot의 profile-yml 우선순위*: 명시 active profile yml > default profile yml > application.yml. profile yml 에 동일 키 명시 시 *override*, 미명시 시 *공통 값 상속*.
+- 요청 처리 중 *Filter 이전*에 예외 (예: Tomcat이 *Content-Type 파싱 실패*) → `RequestLoggingFilter`의 START 로그만 남고 *완료 로그 없음* — `finally` 블록이 잡지 못함. 무관 — Tomcat *Access Log*가 별도로 잡음 (v2에서 활성화)
+- 요청이 *오래 걸리는 중* SSH로 EC2에 접속해 `journalctl -u thirdtool-app -f` → START 로그만 *5초 이상 떠 있음* → *진행 중 요청* 식별 가능 (의도된 동작)
+- 동일 요청에 대해 *INFO 2건* — Monitoring Product의 *RPS 메트릭*과 카운트가 *2배* 되지 않는지 확인 필요 (Filter는 1회 호출, 로그만 2건이므로 무관)
+- `/h2-console/*` 호출이 *로그 노이즈* 일으킬 가능성 → `shouldNotFilter`에 포함 (위 코드 반영)
+- ERROR 로그의 stack trace가 *수십 줄* — 운영에서 *CloudWatch Logs* 비용 영향 가능. 본 Product는 *journalctl 콘솔만* → 비용 영향 0. v2(CloudWatch Logs)에서 *ERROR만 별도 그룹*으로 분리
+- Actuator 의존성 추가만으로 *기본 메트릭 등록* (Micrometer 자동 설정) — `/actuator/prometheus`는 *exclude되어 노출 안 됨*. Monitoring Product에서 *include에 추가*하는 1줄 변경
 
 ### Definition of Done
 
 - [ ]  코드 리뷰 완료
-- [ ]  3개 yaml 파일 *diff* 캡처 (공통 vs local vs prod 차이 명확)
-- [ ]  `ProfileSmokeTest` 그린
-- [ ]  로컬 H2 콘솔 접속 화면 + prod 부팅 *실패 메시지* 캡처 (placeholder 검증)
-- [ ]  README에 *profile별 실행 명령* 섹션 추가
+- [ ]  로컬 요청 시 표준 로그 포맷 출력 캡처 (`curl localhost:8080/api/members ...`)
+- [ ]  WARN/ERROR 분리 검증 (정상 + 404 + 500 시나리오 로그 캡처)
+- [ ]  `curl /actuator/health` 응답 캡처
+- [ ]  민감 endpoint 404 응답 캡처 (`/env`, `/heapdump`, `/beans`)
+- [ ]  `RequestLoggingFilterTest` + `ActuatorEndpointTest` 그린
 
 ### 의존성
+
+- 선행: Story 1-1 (profile별 `logging.level.*` 설정, 머지 완료), Member Epic (GlobalExceptionHandler 존재)
+- 후속: 배포 Epic (운영 환경에서 *동일한 로그*가 `journalctl` 로 보임을 검증), 향후 Monitoring Epic (`prometheus` 를 include 에 *한 줄 추가*)
+
+### 스토리 포인트
+
+- 추정: 3 SP
