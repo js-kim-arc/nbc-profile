@@ -17,7 +17,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex) {
         ErrorCode code = ex.getErrorCode();
-        return ResponseEntity.status(code.getStatus()).body(ApiResponse.error(code));
+        HttpStatus status = code.getStatus();
+        if (status.is5xxServerError()) {
+            log.error("[API - LOG] {} {}", code.name(), code.getMessage(), ex);
+        } else {
+            log.warn("[API - LOG] {} {}", code.name(), code.getMessage());
+        }
+        return ResponseEntity.status(status).body(ApiResponse.error(code));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -25,19 +31,21 @@ public class GlobalExceptionHandler {
         List<String> errors = ex.getBindingResult().getFieldErrors().stream()
                 .map(f -> "%s: %s".formatted(f.getField(), f.getDefaultMessage()))
                 .toList();
+        log.warn("[API - LOG] VALIDATION_FAILED {}", errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(ErrorCode.VALIDATION_FAILED, errors));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse<Void>> handleTooLarge(MaxUploadSizeExceededException ex) {
+        log.warn("[API - LOG] FILE_TOO_LARGE {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
                 .body(ApiResponse.error(ErrorCode.FILE_TOO_LARGE));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnknown(Exception ex) {
-        log.error("Unhandled exception", ex);
+        log.error("[API - LOG] INTERNAL_ERROR", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiResponse<>("INTERNAL_ERROR", "unexpected error", null));
     }
