@@ -30,3 +30,16 @@ app:
         secret-key: ${S3_SECRET_KEY:}
       presigned:
         default-expiration-seconds: ${S3_PRESIGNED_TTL_SECONDS:300}
+
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health
+        exclude: env, beans, heapdump, threaddump, configprops, mappings
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: false
