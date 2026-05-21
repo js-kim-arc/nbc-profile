@@ -35,20 +35,23 @@ class ActuatorEndpointTest {
     }
 
     @Test
-    void env_endpoint_차단_404() throws Exception {
+    void env_endpoint_차단_404_RESOURCE_NOT_FOUND() throws Exception {
         mockMvc.perform(get("/actuator/env"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
-    void heapdump_endpoint_차단_404() throws Exception {
+    void heapdump_endpoint_차단_404_RESOURCE_NOT_FOUND() throws Exception {
         mockMvc.perform(get("/actuator/heapdump"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
-    void beans_endpoint_차단_404() throws Exception {
+    void beans_endpoint_차단_404_RESOURCE_NOT_FOUND() throws Exception {
         mockMvc.perform(get("/actuator/beans"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 }

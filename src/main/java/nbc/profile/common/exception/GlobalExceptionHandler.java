@@ -55,7 +55,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnknown(Exception ex) {
         log.error("[API - LOG] INTERNAL_ERROR", ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse<>("INTERNAL_ERROR", "unexpected error", null));
+        return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.getStatus())
+                .body(ApiResponse.error(ErrorCode.INTERNAL_ERROR));
     }
 }

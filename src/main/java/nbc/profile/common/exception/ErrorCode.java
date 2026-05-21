@@ -13,6 +13,7 @@ public enum ErrorCode {
 
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "validation failed"),
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "file exceeds size limit"),
+    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "unexpected error"),
 
     FILE_STORAGE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "failed to upload file"),
     FILE_STORAGE_DOWNLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "failed to download file"),
