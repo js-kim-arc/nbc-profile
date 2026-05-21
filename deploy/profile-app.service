@@ -1,0 +1,29 @@
+[Unit]
+Description=Profile Spring Boot Application
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user
+ExecStart=/usr/bin/java -Xmx384m -XX:+UseSerialGC -jar /home/ec2-user/app.jar
+
+Environment=SPRING_PROFILES_ACTIVE=prod
+
+# Spring Boot 표준 환경변수 — application.yml 수정 없이 직접 인식됨
+Environment=SPRING_DATASOURCE_URL=jdbc:h2:mem:tmp;MODE=MySQL;DATABASE_TO_LOWER=TRUE
+Environment=SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver
+Environment=SPRING_DATASOURCE_USERNAME=sa
+Environment=SPRING_DATASOURCE_PASSWORD=sa
+Environment=SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.H2Dialect
+
+Restart=on-failure
+RestartSec=5
+SuccessExitStatus=143
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=profile-app
+
+[Install]
+WantedBy=multi-user.target

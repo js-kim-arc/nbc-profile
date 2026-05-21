@@ -78,3 +78,77 @@ S3 자격증명 (`S3_ACCESS_KEY` / `S3_SECRET_KEY`) 은 미설정 시 *DefaultCr
 - 패키지 · BC 구조: `docs/PACKAGE.md`
 - 아키텍처 결정 기록: `docs/adr/index.md`
 - 현재 Epic / Story: `workflow/epic/epic.md`, `workflow/story/story.md`
+
+
+## 인프라 (Product 2: VPC + EC2)
+
+### EC2 인스턴스 정보
+
+| 항목 | 값 |
+|---|---|
+| Instance ID | `i-0abc1234...` |
+| Public IPv4 | `3.36.121.211` |
+| 인스턴스 타입 | t3.micro (Free Tier) |
+| AMI | Amazon Linux 2023 (x86_64) |
+| VPC / Subnet | `profile-vpc` / `profile-public-2a` (10.0.1.0/24) |
+| Security Group | `profile-app-sg` (22/80/8080, My IP only) |
+| 접속 URL (배포 후) | `http://3.36.121.211:8080` |
+
+> **주의:** Elastic IP 미사용 결정(`ADR-NET-004`)으로, 인스턴스 stop/start 시 Public IP가 변경됩니다. 본 IP는 *최종 커밋 시점 기준*입니다.
+
+### SSH 접속
+
+```powershell
+ssh -i "C:\study\study_related_important\profile-key.pem" ec2-user@3.36.121.211
+```
+
+### 본인 IP 변경 시 SG 갱신 절차
+
+SSH가 `Connection timed out`으로 실패하면, 보안 그룹 인바운드의 등록된 IP가 *현재 본인 IP와 다른 상태*입니다 (Wi-Fi 전환·모바일 핫스팟·VPN 변경 등). 아래 절차로 5분 내 복구.
+
+1. 현재 본인 IP 확인
+```powershell
+   curl https://checkip.amazonaws.com
+```
+2. AWS Console → EC2 → Security Groups → `profile-app-sg`
+3. Inbound rules 탭 → Edit inbound rules
+4. 22 / 80 / 8080 세 룰의 Source를 `<NEW_IP>/32`로 갱신 (Source 드롭다운 → **My IP** 선택하면 자동 입력)
+5. Save rules → SSH 재시도
+
+### 인스턴스 재시작 시 주의
+
+- 인스턴스 stop → start 시 Public IP가 변경됨 (Elastic IP 미사용)
+- 재시작 후 README의 Public IP를 *수동 갱신*해야 함
+- 학습 중에는 *인스턴스를 의도적으로 중지하지 않는 것*이 운영 절차 (Free Tier 750시간/월 = 24/7 가능)
+
+### 인프라 다이어그램
+
+\`\`\`
+[My PC]
+│ SSH (22) / HTTP (80) / 8080
+│ My IP /32 only
+▼
+┌──────────────────────────────────────────┐
+│ profile-vpc (10.0.0.0/16)                │
+│  ┌─────────────────────────────────────┐ │
+│  │ Public Subnet 10.0.1.0/24 (2a)      │ │
+│  │   ┌──────────────────────┐          │ │
+│  │   │ EC2 profile-app-01   │          │ │
+│  │   │  t3.micro, AL2023    │          │ │
+│  │   └──────────────────────┘          │ │
+│  └─────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────┐ │
+│  │ Public Subnet 10.0.2.0/24 (2c)      │ │
+│  │  (empty - reserved for ALB in P7)   │ │
+│  └─────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────┐ │
+│  │ Private Subnet 10.0.11.0/24 (2a)    │ │
+│  │  (empty - reserved for RDS in P7)   │ │
+│  └─────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────┐ │
+│  │ Private Subnet 10.0.12.0/24 (2c)    │ │
+│  │  (empty - reserved for RDS in P7)   │ │
+│  └─────────────────────────────────────┘ │
+│  Internet Gateway: profile-igw           │
+└──────────────────────────────────────────┘
+\`\`\`
