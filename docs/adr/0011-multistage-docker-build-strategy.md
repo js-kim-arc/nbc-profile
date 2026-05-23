@@ -1,6 +1,6 @@
 # ADR-0011: 멀티스테이지 Docker 빌드 + eclipse-temurin base 채택
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-23
 - **Deciders**: junseong kim
 - **Trigger**: T1 (멀티스테이지 vs 단일스테이지 vs Jib/bootBuildImage), T4 (Docker · eclipse-temurin 도입), T7 (Distroless · Alpine · Jib · Compose · ECR · JVM 튜닝 연기)
@@ -94,7 +94,7 @@ ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 
 ### Positive
 
-- Epic DoD 4건 충족: 멀티스테이지 / 정상 기동 / 빌드 산출물 미포함 / 크기 감소 측정 가능.
+- Epic DoD 4건 충족 (2026-05-23 실측): 멀티스테이지 / `/actuator/health` 200 OK `{"status":"UP"}` / runtime layer 에 gradle 흔적 0건 / **이미지 크기 1.04GB → 394MB (−62.1%)**.
 - 빌드 캐시 효율: 소스만 바뀐 재빌드 시 의존성 레이어 재사용 → 로컬 반복 빌드 빠름.
 - 보안 표면 축소: runtime 에 compiler · src · gradle 캐시 부재.
 - `Dockerfile` 자체가 *결정의 코드 표현* — 신규 합류자가 빌드/실행 의도를 1파일로 파악.

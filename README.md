@@ -117,11 +117,13 @@ docker run --rm -p 8080:8080 --env-file .env nbc-profile:local
 
 ### 이미지 크기 비교 (멀티스테이지 vs 단일스테이지)
 
+2026-05-23 측정 (로컬 Windows + Docker Desktop 28.3.2, base = `eclipse-temurin:21-jdk/jre`).
+
 | 빌드 방식 | 이미지 크기 | 비고 |
 |---|---|---|
-| 단일스테이지 (`temurin:21-jdk` 만) | _측정 예정_ | JDK + Gradle 캐시 + src 잔존 |
-| 멀티스테이지 (현재 `Dockerfile`) | _측정 예정_ | runtime 은 JRE + jar 만 |
-| 절감률 | _측정 예정_ | — |
+| 단일스테이지 (`temurin:21-jdk` 만) | **1.04GB** | JDK + Gradle 캐시 + src 잔존 |
+| 멀티스테이지 (현재 `Dockerfile`) | **394MB** | runtime 은 JRE + jar (~73MB) 만 |
+| **절감** | **−646MB / −62.1%** | — |
 
 > 측정 방법: 임시 `Dockerfile.single` 로 단일스테이지 빌드 후 `docker images` 비교. 측정 후 임시 파일은 삭제 (커밋 금지 — 두 파일 drift 위험).
 
