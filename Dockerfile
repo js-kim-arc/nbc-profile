@@ -19,7 +19,8 @@ RUN ./gradlew --no-daemon dependencies > /dev/null 2>&1 || true
 
 # 소스 COPY 후 패키징 — 테스트는 CI 책임이므로 -x test (ADR-0011 §Decision)
 COPY src ./src
-RUN ./gradlew --no-daemon bootJar -x test
+RUN ./gradlew --no-daemon bootJar -x test \
+ && cp "$(ls build/libs/*.jar | grep -v 'plain\.jar$')" /workspace/app.jar
 
 # ============================================================
 # 2단계: runtime — JRE 만으로 jar 실행 (compiler · src · gradle 캐시 미포함)
@@ -28,8 +29,8 @@ FROM eclipse-temurin:21-jre AS runtime
 
 WORKDIR /app
 
-# build/libs 산출물은 단일 fat JAR (bootJar). 와일드카드로 version 변경 흡수.
-COPY --from=builder /workspace/build/libs/*.jar /app/app.jar
+# builder 에서 plain jar 분리 후 /workspace/app.jar 로 단일화 (version 변경 무관)
+COPY --from=builder /workspace/app.jar /app/app.jar
 
 # 메타데이터 (실제 포트 매핑은 docker run -p 가 결정)
 EXPOSE 8080
