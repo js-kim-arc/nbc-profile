@@ -1,0 +1,37 @@
+# Docker build context 최소화 — Dockerfile 의 COPY 효율 + 캐시 무효화 방지.
+# 결정 근거: docs/adr/0011-multistage-docker-build-strategy.md
+
+# 빌드 산출물 (builder 단계에서 새로 생성됨)
+build/
+.gradle/
+out/
+
+# VCS
+.git/
+.gitignore
+.gitattributes
+
+# 문서 (런타임 무관 — 변경 시 캐시 무효화 방지)
+*.md
+docs/
+workflow/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 로컬 시크릿
+.env
+.env.*
+!.env.example
+
+# Claude harness (개발자 로컬 룰)
+.claude/
+
+# Docker 자체
+Dockerfile
+.dockerignore
+
+# 운영 산출물 (컨테이너 외부)
+deploy/

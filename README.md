@@ -79,6 +79,61 @@ S3 자격증명 (`S3_ACCESS_KEY` / `S3_SECRET_KEY`) 은 미설정 시 *DefaultCr
 - 아키텍처 결정 기록: `docs/adr/index.md`
 - 현재 Epic / Story: `workflow/epic/epic.md`, `workflow/story/story.md`
 
+---
+
+## Docker 로컬 실행
+
+멀티스테이지 Dockerfile (builder=JDK / runtime=JRE) — 결정 근거는 [ADR-0011](docs/adr/0011-multistage-docker-build-strategy.md).
+
+### 빌드 + 기동
+
+```powershell
+# 빌드 (의존성 레이어 캐시 분리 — 소스만 바뀐 재빌드는 deps 재사용)
+docker build -t nbc-profile:local .
+
+# local profile (H2 in-memory) 기동
+docker run --rm -d -p 8080:8080 --name nbcp `
+  -e SPRING_PROFILES_ACTIVE=local nbc-profile:local
+
+# 헬스체크 (ADR-0010)
+curl http://localhost:8080/actuator/health   # {"status":"UP"}
+
+# 로그 / 정지
+docker logs nbcp
+docker stop nbcp
+```
+
+### 환경변수 주입 (prod profile)
+
+```powershell
+# .env.example 을 복사해 .env 작성 (gitignore 대상)
+copy .env.example .env
+# 값 채운 뒤
+docker run --rm -p 8080:8080 --env-file .env nbc-profile:local
+```
+
+- `.env` 의 `SPRING_PROFILES_ACTIVE=prod` 일 때 DB_*, S3_BUCKET, S3_REGION 미설정 시 *부팅 실패* — ADR-0008 의도된 fail-fast.
+- S3 자격증명 미설정 시 `DefaultCredentialsProvider` fallback (ADR-0004) — IAM Role / `~/.aws/credentials` / AWS_* 환경변수 탐색.
+
+### 이미지 크기 비교 (멀티스테이지 vs 단일스테이지)
+
+2026-05-23 측정 (로컬 Windows + Docker Desktop 28.3.2, base = `eclipse-temurin:21-jdk/jre`).
+
+| 빌드 방식 | 이미지 크기 | 비고 |
+|---|---|---|
+| 단일스테이지 (`temurin:21-jdk` 만) | **1.04GB** | JDK + Gradle 캐시 + src 잔존 |
+| 멀티스테이지 (현재 `Dockerfile`) | **394MB** | runtime 은 JRE + jar (~73MB) 만 |
+| **절감** | **−646MB / −62.1%** | — |
+
+> 측정 방법: 임시 `Dockerfile.single` 로 단일스테이지 빌드 후 `docker images` 비교. 측정 후 임시 파일은 삭제 (커밋 금지 — 두 파일 drift 위험).
+
+### 빌드 산출물 미포함 검증
+
+```powershell
+# runtime layer 에 JDK · Gradle 흔적이 없는지 확인
+docker history nbc-profile:local --no-trunc | findstr /i "gradle jdk"   # 결과 0줄 기대
+```
+
 
 ## 인프라 (Product 2: VPC + EC2)
 
