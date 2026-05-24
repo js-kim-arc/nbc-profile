@@ -79,6 +79,42 @@ S3 자격증명 (`S3_ACCESS_KEY` / `S3_SECRET_KEY`) 은 미설정 시 *DefaultCr
 - 아키텍처 결정 기록: `docs/adr/index.md`
 - 현재 Epic / Story: `workflow/epic/epic.md`, `workflow/story/story.md`
 
+---
+
+## CI (GitHub Actions)
+
+`.github/workflows/ci.yml` — 결정 근거는 [ADR-0012](docs/adr/0012-github-actions-ci-pipeline.md).
+
+### 트리거 / 동작
+
+- `push: main` / `pull_request: main` — 두 시점 모두 동일 워크플로 실행 → 머지 게이트.
+- `runs-on: ubuntu-latest`, JDK 21 Temurin.
+- 한 PR 에 새 커밋 push 시 진행 중 실행 자동 취소 (`concurrency: cancel-in-progress`).
+
+### Step 구성
+
+1. `checkout` → `setup-java(21, temurin)` → `setup-gradle` (네이티브 캐시)
+2. `./gradlew clean build` (compile + test + jar)
+3. 테스트 실패 시 워크플로 전체 fail — *실패한 채로 머지 불가*.
+
+### Artifact
+
+| 이름 | 시점 | 내용 | 보존 |
+|---|---|---|---|
+| `test-reports` | `if: always()` (실패 시도) | `build/reports/tests` HTML | 7일 |
+| `app-jar` | `if: success()` | `build/libs/*-SNAPSHOT.jar` | 7일 |
+
+Actions UI 의 워크플로 실행 페이지 하단 "Artifacts" 에서 다운로드.
+
+### 캐시 동작
+
+`gradle/actions/setup-gradle@v4` 가 `~/.gradle/caches`, wrapper, configuration-cache 를 자동 관리.
+2회차 실행부터 의존성 다운로드/컴파일 캐시 재사용으로 시간 단축 (실측은 Actions UI 의 step duration 참고).
+
+### Branch Protection (선택, GitHub UI)
+
+PR 머지 게이트로 강제하려면: GitHub repo → Settings → Branches → main → "Require status checks to pass before merging" 체크 후 `Build & Test (JDK 21)` 선택.
+
 
 ## 인프라 (Product 2: VPC + EC2)
 
