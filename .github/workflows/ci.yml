@@ -1,0 +1,39 @@
+# 결정 근거: docs/adr/0012-github-actions-ci-pipeline.md
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 동일 PR 에 새 커밋 push 시 진행 중인 워크플로 취소 (Actions 분 절약)
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test (JDK 21)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: gradlew permission (Linux runner)
+        run: chmod +x gradlew
+
+      - name: Gradle build (compile + test + jar)
+        run: ./gradlew --no-daemon clean build
