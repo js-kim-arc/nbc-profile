@@ -1,21 +1,26 @@
+# 결정 근거: docs/adr/0013-cd-dockerhub-ec2.md
+# 본 유닛은 *부팅 시 컨테이너 자동 기동* + *비정상 종료 시 재시작* 안전망.
+# 컨테이너 *최초 생성* 은 cd.yml 의 deploy job 이 `docker run -d` 로 수행.
+# 본 유닛은 *이미 존재하는 nbc-profile 컨테이너* 를 attach 모드로 시작.
+
 [Unit]
-Description=Profile Spring Boot Application
-After=network.target
+Description=nbc-profile container (docker-managed)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=ec2-user
-WorkingDirectory=/home/ec2-user
-ExecStart=/usr/bin/java -Xmx384m -XX:+UseSerialGC -jar /home/ec2-user/app.jar
 
-Environment=SPRING_PROFILES_ACTIVE=prod
+# attach 모드: docker daemon 의 STDOUT/STDERR 를 systemd journal 로 라우팅.
+# 컨테이너가 부재 (`docker run` 한 번도 안 됨) 이면 ExecStart 가 실패 →
+# Restart=on-failure 로 재시도하지만 결국 멈춤. 최초 1회는 cd.yml 또는
+# 수동 `deploy/deploy.sh` 가 컨테이너 생성 책임.
+ExecStart=/usr/bin/docker start -a nbc-profile
 
-# Spring Boot 표준 환경변수 — application.yml 수정 없이 직접 인식됨
-Environment=SPRING_DATASOURCE_URL=jdbc:h2:mem:tmp;MODE=MySQL;DATABASE_TO_LOWER=TRUE
-Environment=SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver
-Environment=SPRING_DATASOURCE_USERNAME=sa
-Environment=SPRING_DATASOURCE_PASSWORD=sa
-Environment=SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.H2Dialect
+# graceful stop: 컨테이너에 SIGTERM 후 30s 대기, 이후 SIGKILL.
+ExecStop=/usr/bin/docker stop -t 30 nbc-profile
 
 Restart=on-failure
 RestartSec=5
