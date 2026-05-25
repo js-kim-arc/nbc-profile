@@ -1,27 +1,31 @@
-## **Epic 1-1. 애플리케이션 컨테이너화 (Dockerfile)**
+
+## **Epic 1-3. Docker Hub 기반 CD 파이프라인 (Image Push & EC2 Pull)**
 
 ```smalltalk
-# Epic 1-1. 애플리케이션 컨테이너화 (Dockerfile)
+# Epic 1-3. Docker Hub 기반 CD 파이프라인 (Image Push & EC2 Pull)
 
 ## Epic 목표
-> Spring Boot 애플리케이션이 환경에 무관하게 동일하게 실행되는
-> Docker 이미지로 패키징되어, 로컬과 EC2 어디에서나 같은 결과를 만들어낸다.
+> CI 성공 시점부터 이미지가 자동으로 Docker Hub에 Push되고,
+> EC2가 새 이미지를 Pull/Run하여 코드 푸시 한 번으로 배포까지 이어진다.
 
 ## 배경
-- 로컬 개발 환경(macOS + JDK 21)과 EC2(Ubuntu) 사이 시스템 라이브러리·JDK 버전 차이가 배포 장애의 흔한 원인
-- 이미지 크기가 크면 Docker Hub Push/Pull 시간이 길어져 배포 사이클이 늘어남
-- 빌드 환경(JDK·Gradle)과 실행 환경(JRE)을 분리해야 이미지가 가벼워지고 보안 표면도 줄어듦
+- CI 후 수동으로 EC2에 SSH 접속해서 docker pull/run을 수행하면 휴먼 에러 발생
+- 동일 태그(latest)만 사용 시 어떤 커밋이 현재 배포됐는지 추적 불가 — 롤백도 불가
+- Docker Hub 자격 증명·EC2 SSH 키를 코드에 노출하면 안 됨 → Secrets로 관리
+- 배포 스크립트가 EC2에서 안정적으로 실행되어야 하며, 컨테이너 교체 시 순간적 다운타임은 v1에서는 허용
 
 ## Epic 수준 완료 기준 (Definition of Done)
-- [ ] 멀티스테이지 구조의 Dockerfile이 작성되어 있다
-- [ ] 로컬에서 `docker build` → `docker run`으로 애플리케이션이 정상 기동된다
-- [ ] 최종 이미지에 빌드 산출물(소스, Gradle 캐시 등)이 포함되지 않는다
-- [ ] 이미지 크기가 단일 스테이지 대비 명확히 감소했음이 측정되어 있다
+- [ ] CI 성공 후 Docker Hub로 이미지가 자동 Push된다
+- [ ] EC2가 새 이미지를 자동 Pull/Run하여 배포가 완료된다
+- [ ] 이미지 태깅 전략이 정의되어 있다 (커밋 SHA + latest 병행)
+- [ ] 모든 자격 증명이 GitHub Secrets로 관리된다
 - [ ] 연결된 스토리가 모두 Done 상태다
 
 ## 내부 메모 / 제약 사항
-- 기술 제약: JDK 21, Spring Boot 3.x, Gradle Wrapper 사용
-- 기획 원칙: 빌드 이미지(JDK + Gradle)와 실행 이미지(JRE only) 명확히 분리
-- 기획 원칙: 이미지 베이스는 검증된 공식 이미지(eclipse-temurin) 사용
-- 연기된 항목: distroless / Alpine 기반 추가 경량화 — v2
-- 연기된 항목: Jib 등 Gradle 플러그인 기반 이미지 빌드 전환 — v2
+- 기술 제약: GitHub Actions Secrets로 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN / EC2_SSH_KEY / EC2_HOST 관리
+- 기술 제약: EC2 접근은 SSH 키 기반 (appleboy/ssh-action 활용)
+- 기획 원칙: 이미지 태그는 git SHA(추적성) + latest(편의성) 병행 Push
+- 기획 원칙: v1에서는 순단 허용 — 무중단 배포는 Product 2의 ALB+ASG 단계에서 해결
+- 연기된 항목: 블루-그린 / 카나리 배포 — v2
+- 연기된 항목: ECR로의 마이그레이션 — v2
+```
