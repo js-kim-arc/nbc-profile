@@ -81,6 +81,61 @@ S3 자격증명 (`S3_ACCESS_KEY` / `S3_SECRET_KEY`) 은 미설정 시 *DefaultCr
 
 ---
 
+## Docker 로컬 실행
+
+멀티스테이지 Dockerfile (builder=JDK / runtime=JRE) — 결정 근거는 [ADR-0011](docs/adr/0011-multistage-docker-build-strategy.md).
+
+### 빌드 + 기동
+
+```powershell
+# 빌드 (의존성 레이어 캐시 분리 — 소스만 바뀐 재빌드는 deps 재사용)
+docker build -t nbc-profile:local .
+
+# local profile (H2 in-memory) 기동
+docker run --rm -d -p 8080:8080 --name nbcp `
+  -e SPRING_PROFILES_ACTIVE=local nbc-profile:local
+
+# 헬스체크 (ADR-0010)
+curl http://localhost:8080/actuator/health   # {"status":"UP"}
+
+# 로그 / 정지
+docker logs nbcp
+docker stop nbcp
+```
+
+### 환경변수 주입 (prod profile)
+
+```powershell
+# .env.example 을 복사해 .env 작성 (gitignore 대상)
+copy .env.example .env
+# 값 채운 뒤
+docker run --rm -p 8080:8080 --env-file .env nbc-profile:local
+```
+
+- `.env` 의 `SPRING_PROFILES_ACTIVE=prod` 일 때 DB_*, S3_BUCKET, S3_REGION 미설정 시 *부팅 실패* — ADR-0008 의도된 fail-fast.
+- S3 자격증명 미설정 시 `DefaultCredentialsProvider` fallback (ADR-0004) — IAM Role / `~/.aws/credentials` / AWS_* 환경변수 탐색.
+
+### 이미지 크기 비교 (멀티스테이지 vs 단일스테이지)
+
+2026-05-23 측정 (로컬 Windows + Docker Desktop 28.3.2, base = `eclipse-temurin:21-jdk/jre`).
+
+| 빌드 방식 | 이미지 크기 | 비고 |
+|---|---|---|
+| 단일스테이지 (`temurin:21-jdk` 만) | **1.04GB** | JDK + Gradle 캐시 + src 잔존 |
+| 멀티스테이지 (현재 `Dockerfile`) | **394MB** | runtime 은 JRE + jar (~73MB) 만 |
+| **절감** | **−646MB / −62.1%** | — |
+
+> 측정 방법: 임시 `Dockerfile.single` 로 단일스테이지 빌드 후 `docker images` 비교. 측정 후 임시 파일은 삭제 (커밋 금지 — 두 파일 drift 위험).
+
+### 빌드 산출물 미포함 검증
+
+```powershell
+# runtime layer 에 JDK · Gradle 흔적이 없는지 확인
+docker history nbc-profile:local --no-trunc | findstr /i "gradle jdk"   # 결과 0줄 기대
+```
+
+---
+
 ## CI (GitHub Actions)
 
 `.github/workflows/ci.yml` — 결정 근거는 [ADR-0012](docs/adr/0012-github-actions-ci-pipeline.md).
@@ -114,6 +169,98 @@ Actions UI 의 워크플로 실행 페이지 하단 "Artifacts" 에서 다운로
 ### Branch Protection (선택, GitHub UI)
 
 PR 머지 게이트로 강제하려면: GitHub repo → Settings → Branches → main → "Require status checks to pass before merging" 체크 후 `Build & Test (JDK 21)` 선택.
+
+---
+
+## CD (Docker Hub Push + EC2 Pull)
+
+`.github/workflows/cd.yml` — 결정 근거는 [ADR-0013](docs/adr/0013-cd-dockerhub-ec2.md).
+
+### 트리거 흐름
+
+```
+main push
+  → CI (ci.yml) gradle clean build → 그린
+    → CD (cd.yml) workflow_run trigger (event=push 가드)
+      → docker build (buildx, GHA cache)
+      → docker push {DOCKERHUB_USERNAME}/nbc-profile:{SHA} + :latest
+        → SSH (appleboy/ssh-action) → ec2-user@EC2_HOST
+          → docker pull / stop / rm / run -d --restart=always --env-file /home/ec2-user/.env
+            → health gate: /actuator/health UP polling (최대 60s)
+```
+
+PR 빌드는 `workflow_run.event == 'push'` 가드로 CD 미실행.
+
+### GitHub Secrets (Settings → Secrets and variables → Actions → New repository secret)
+
+| Secret | 값 | 비고 |
+|---|---|---|
+| `DOCKERHUB_USERNAME` | Docker Hub 사용자명 | 이미지 경로 prefix |
+| `DOCKERHUB_TOKEN` | Docker Hub Access Token | Read+Write+Delete 권한 |
+| `EC2_HOST` | `3.36.121.211` | EC2 Public IP — Elastic IP 미사용 → stop/start 시 갱신 |
+| `EC2_SSH_KEY` | `profile-key.pem` 전체 | BEGIN/END 라인 포함 |
+
+### EC2 사전 준비 (1회)
+
+```bash
+# 1) SSH 접속
+ssh -i "C:\study\study_related_important\profile-key.pem" ec2-user@3.36.121.211
+
+# 2) docker 설치 (AL2023)
+sudo dnf install -y docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user
+# (재로그인 — exit 후 다시 ssh)
+
+# 3) /home/ec2-user/.env 작성 (prod 환경변수)
+cat > /home/ec2-user/.env <<'EOF'
+SPRING_PROFILES_ACTIVE=prod
+DB_URL=jdbc:mysql://...
+DB_USERNAME=...
+DB_PASSWORD=...
+S3_BUCKET=...
+S3_REGION=ap-northeast-2
+# S3_ACCESS_KEY/S3_SECRET_KEY 는 IAM Role 사용 시 생략 (ADR-0004 fallback)
+EOF
+chmod 600 /home/ec2-user/.env
+
+# 4) systemd 유닛 배치 (부팅 안전망)
+# 본 repo 의 deploy/profile-app.service 를 scp 또는 직접 복사
+sudo cp profile-app.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable profile-app
+# 컨테이너가 아직 없으므로 systemctl start 는 첫 배포 후
+
+# 5) 첫 배포 — cd.yml 자동 또는 수동 deploy.sh
+DOCKERHUB_USERNAME=<your-user> ./deploy.sh
+sudo systemctl start profile-app   # 이후 부팅 시 자동 기동
+```
+
+### 환경변수 갱신 절차
+
+| 대상 | 절차 |
+|---|---|
+| **GitHub Secrets** | Settings → Secrets → 해당 Secret → Update value |
+| **EC2 .env** | SSH 접속 → `vi /home/ec2-user/.env` → 다음 배포에 자동 반영 (cd.yml 이 매번 --env-file 재주입) |
+| **신규 환경변수 추가** | (a) `.env.example` 업데이트 + 커밋 (b) EC2 `.env` 수정 (c) (필요 시) GitHub Secret 추가 (d) 다음 배포 자동 적용 |
+
+### 롤백 (특정 SHA 로 되돌리기)
+
+```bash
+# SSH 접속 후
+SHA=<롤백할_커밋_SHA>
+DOCKERHUB_USERNAME=<user>
+docker pull "${DOCKERHUB_USERNAME}/nbc-profile:${SHA}"
+docker tag  "${DOCKERHUB_USERNAME}/nbc-profile:${SHA}" "${DOCKERHUB_USERNAME}/nbc-profile:latest"
+sudo systemctl restart profile-app
+# 또는 deploy.sh <sha> 한 줄로 동일 시퀀스
+```
+
+### 배포 모니터링
+
+- GitHub Actions UI: cd.yml 실행 로그 (build-and-push + deploy step 별 timing)
+- EC2: `docker ps`, `docker logs nbc-profile --tail 100 -f`, `sudo journalctl -u profile-app -f`
+- 외부: `curl http://3.36.121.211:8080/actuator/health` → `{"status":"UP"}`
 
 
 ## 인프라 (Product 2: VPC + EC2)

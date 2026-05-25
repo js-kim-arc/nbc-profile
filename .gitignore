@@ -39,3 +39,7 @@ out/
 ### Claude harness (local rules — developer only) ###
 .claude/
 
+### Local secrets (Docker env-file 등) — .env.example 만 tracked ###
+.env
+.env.*
+!.env.example
