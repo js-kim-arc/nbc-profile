@@ -1,12 +1,32 @@
+# 결정 근거: docs/adr/0014-prod-rds-mysql-migration.md
+# 모든 시크릿/엔드포인트는 ${VAR} placeholder. 실값은 EC2 /home/ec2-user/.env.
+
 spring:
   datasource:
-    url: ${DB_URL}
+    # JDBC URL: HOST/PORT/NAME 환경변수 분리 주입.
+    # serverTimezone=Asia/Seoul — 애플리케이션 KST 일관성.
+    # useSSL=true + allowPublicKeyRetrieval=true — MySQL 8 caching_sha2_password 인증 지원.
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/${DB_NAME}?useSSL=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+
+    # HikariCP — RDS 단절/점검 대비 (private RDS 재배치 시 stale 연결 자동 회수)
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000          # 30s — 신규 연결 획득 최대 대기
+      max-lifetime: 1700000              # 28분 20초 — RDS 기본 wait_timeout(28800s) 보다 짧게
+      keepalive-time: 300000             # 5분 — 유휴 연결에 주기적 keepalive 쿼리
+      idle-timeout: 600000               # 10분
+      validation-timeout: 5000
+
   jpa:
     hibernate:
-      ddl-auto: validate
+      # TODO(Flyway): Flyway 도입 후 'validate' 로 전환. 현재는 RDS 첫 도입 + 엔티티 자동 생성 단계.
+      ddl-auto: update
+    # MySQL 8 dialect — Hibernate 7 의 MySQLDialect 가 connection 메타에서 버전 자동 감지
+    database-platform: org.hibernate.dialect.MySQLDialect
     show-sql: false
 
 app:
