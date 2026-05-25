@@ -335,3 +335,51 @@ SSH가 `Connection timed out`으로 실패하면, 보안 그룹 인바운드의 
 │  Internet Gateway: profile-igw           │
 └──────────────────────────────────────────┘
 \`\`\`
+
+## 과제 실행 내용
+
+
+## 🏗️ 단계별 구축 과정
+
+과제를 lv0부터 lv5까지 단계적으로 해결하며 인프라를 확장했습니다.
+
+### lv0. 요금 폭탄 방지 AWS Budget 설정
+초기 단계로 예산 관리 기능을 구현했습니다.
+
+<img src="docs/images/budget.png" width="700" alt="lv0 예산 관리">
+
+### lv1. 네트워크 구축 및 핵심 기능 배포
+애플리케이션을 EC2 인스턴스에 배포했습니다.
+
+<img src="docs/images/ec2.png" width="700" alt="lv1 EC2 배포">
+
+### lv2.  DB 분리 및 보안 연결하기
+RDS(MySQL)를 Private Subnet에 두고 애플리케이션과 연동했습니다.
+
+<img src="docs/images/lv2rds.png" width="700" alt="lv2 RDS">
+
+### lv3. 프로필 사진 기능 추가와 권한 관리
+S3 객체 접근용 Presigned URL을 발급받았습니다.
+
+발급받은 Presigned URL:
+https://profile-images-7a3c9f-520588544084-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/profile/1/9730678b-e8df-48b0-add6-954556d802c8.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260521T105351Z&...
+
+- 만료 시간(expiresAt): `2026-05-21T19:58:52`
+- 유효 기간: 300초 (X-Amz-Expires=300)
+
+<img src="docs/images/lv3presignedurl.png" width="700" alt="lv3 Presigned URL">
+
+### lv4.  Docker & CI/CD 파이프라인 구축
+GitHub Actions로 CI/CD를 구성하고, EC2에 자동 배포되도록 했습니다.
+
+<img src="docs/images/lv4cd까지성공.png" width="700" alt="lv4 CI/CD 성공">
+
+<img src="docs/images/lv4배포성공.png" width="700" alt="lv4 배포 성공">
+
+### lv5. 고가용성 아키텍처와 보안 도메인 연결 (ALB + ASG + HTTPS)
+HTTPS 적용된 도메인 URL
+: https://nbc-profile.com
+
+ASG를 구성하고, 인스턴스가 ALB Target Group에 정상 등록되도록 했습니다.
+
+<img src="docs/images/lv5대상그룹.png" width="700" alt="lv5 ASG Target Group">
