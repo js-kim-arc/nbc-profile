@@ -19,7 +19,6 @@ repositories {
 }
 
 dependencies {
-    implementation("org.springframework.boot:spring-boot-h2console")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
@@ -28,8 +27,16 @@ dependencies {
     implementation(platform("software.amazon.awssdk:bom:2.25.0"))
     implementation("software.amazon.awssdk:s3")
     compileOnly("org.projectlombok:lombok")
-    runtimeOnly("com.h2database:h2")
+
+    // prod runtime — RDS MySQL
     runtimeOnly("com.mysql:mysql-connector-j")
+
+    // H2 — prod jar 에 미포함. bootRun (local profile dev) + 모든 테스트에서만 사용.
+    // 결정 근거: docs/adr/0014-prod-rds-mysql-migration.md
+    developmentOnly("org.springframework.boot:spring-boot-h2console")
+    developmentOnly("com.h2database:h2")
+    testRuntimeOnly("com.h2database:h2")
+
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
     testImplementation("org.springframework.boot:spring-boot-starter-validation-test")

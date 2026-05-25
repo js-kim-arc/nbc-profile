@@ -17,3 +17,4 @@
 | [ADR-0011](0011-multistage-docker-build-strategy.md) | 멀티스테이지 Docker 빌드 + eclipse-temurin base 채택 | Accepted | 2026-05-23 |
 | [ADR-0012](0012-github-actions-ci-pipeline.md) | GitHub Actions CI 파이프라인 + Gradle 캐시 + Artifact 업로드 | Proposed | 2026-05-24 |
 | [ADR-0013](0013-cd-dockerhub-ec2.md) | Docker Hub CD + SHA·latest 태깅 + SSH deploy + Secrets→EC2 .env | Proposed | 2026-05-25 |
+| [ADR-0014](0014-prod-rds-mysql-migration.md) | prod 프로파일 H2 in-memory → AWS RDS MySQL 전환 + HikariCP + Flyway 연기 | Proposed | 2026-05-25 |
