@@ -15,3 +15,4 @@
 | [ADR-0009](0009-api-log-format-and-level-policy.md) | API 로그 표준 포맷 `[API - LOG]` + status 기반 WARN/ERROR 분리 | Accepted | 2026-05-19 |
 | [ADR-0010](0010-actuator-exposure-whitelist.md) | Actuator endpoint 노출 화이트리스트 + show-details:never | Accepted | 2026-05-19 |
 | [ADR-0011](0011-multistage-docker-build-strategy.md) | 멀티스테이지 Docker 빌드 + eclipse-temurin base 채택 | Accepted | 2026-05-23 |
+| [ADR-0013](0013-cd-dockerhub-ec2.md) | Docker Hub CD + SHA·latest 태깅 + SSH deploy + Secrets→EC2 .env | Proposed | 2026-05-25 |
